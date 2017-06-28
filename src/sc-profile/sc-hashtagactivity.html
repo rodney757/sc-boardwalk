@@ -1,4 +1,5 @@
 <link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/iron-collapse/iron-collapse.html">
 <link rel="import" href="../../bower_components/iron-media-query/iron-media-query.html">
 
 <!-- <link rel="import" href="../../bower_components/polymer-redux/polymer-redux.html"> -->
@@ -7,6 +8,7 @@
 <link rel="import" href="../../bower_components/sc-iconset/sc-iconset.html">
 
 <link rel="import" href="../sc-redux/sc-redux.html">
+<link rel="import" href="../sc-hashtagitem/sc-hashtagitem.html">
 
 
 <!--
@@ -86,8 +88,29 @@
     <iron-media-query query="(min-width:0px) and (max-width: 540px)" query-matches="{{phoneview}}"></iron-media-query>
 
         <div class="hashtagactivity totalwidth">
-          <p class="bold">#{{hashtag}} • <span class="bold">1</span></p>
+          <p class="bold">#{{hashtag.name}} • <span class="bold">{{myDeals.length}}</span></p>
 
+          <!--<div class="completeddeals_toggler" on-tap="showOpenDetails">-->
+            <!--<div class$="triangle {{opencollapsestate}}">-->
+              <!--<svg id="triangle_icon" x="0px" y="0px" viewBox="0 0 50 50" fill="#B3B3B3">-->
+                <!--<polygon points="6.5,4.9 6.5,44.5 42,24.9 "/>-->
+              <!--</svg>-->
+            <!--</div>-->
+            <!--<p class="grey3">Show open deals</p>-->
+          <!--</div>-->
+
+          <!--<iron-collapse id="opendeals_collapser">-->
+            <!--<template is="dom-repeat" items="{{myDeals}}" filter="openFilter">-->
+              <!--<sc-hashtagitem-->
+                      <!--item="[[item]]"-->
+                      <!--identity="[[identity]]"-->
+                      <!--class$="full">-->
+              <!--</sc-hashtagitem>-->
+              <!--<p>{{item.id}}</p>-->
+            <!--</template>-->
+          <!--</iron-collapse>-->
+
+            <!-- completed deals -->
             <div id="" class="completeddeals_toggler" on-tap="showDetails">
               <div class$="triangle {{collapsestate}}">
                 <svg id="triangle_icon" x="0px" y="0px" viewBox="0 0 50 50" fill="#B3B3B3">
@@ -97,9 +120,36 @@
               <p class="grey3">Show completed deals</p>
             </div>
 
-            <iron-collapse id="completeddeals_collapser">
-            <p>Joooo</p>
-            </iron-collapse>
+            <!--<iron-collapse id="completeddeals_collapser">-->
+              <template is="dom-repeat" items="{{myDeals}}" filter="doneFilter">
+                <!--<sc-hashtagitem-->
+                        <!--item="[[item]]"-->
+                        <!--identity="[[identity]]"-->
+                        <!--class$="full">-->
+                <!--</sc-hashtagitem>-->
+                <p>{{deal.id}}</p>
+              </template>
+            <!--</iron-collapse>-->
+
+          <!-- canceled deals -->
+          <!--<div class="completeddeals_toggler" on-tap="showCanceledDetails">-->
+            <!--<div class$="triangle {{canceledcollapsestate}}">-->
+              <!--<svg id="triangle_icon" x="0px" y="0px" viewBox="0 0 50 50" fill="#B3B3B3">-->
+                <!--<polygon points="6.5,4.9 6.5,44.5 42,24.9 "/>-->
+              <!--</svg>-->
+            <!--</div>-->
+            <!--<p class="grey3">Show canceled deals</p>-->
+          <!--</div>-->
+
+          <!--<iron-collapse id="canceleddeals_collapser">-->
+            <!--<template is="dom-repeat" items="{{myDeals}}" filter="cancelFilter">-->
+              <!--<sc-hashtagitem-->
+                      <!--item="[[item]]"-->
+                      <!--identity="[[identity]]"-->
+                      <!--class$="full">-->
+              <!--</sc-hashtagitem>-->
+            <!--</template>-->
+          <!--</iron-collapse>-->
         </div>
 
 
@@ -112,16 +162,28 @@
 
       properties: {
 
+        deals: {
+          type: Array,
+          statePath: 'deals',
+           observer: '_deals'
+        },
+
         /**
        * `identity` is received from parent-element, as an object containing an IPFS-hash, which is img-source.
        */
         identity: {
           type: String,
-          observer: '_identity',
+//          observer: '_identity',
           statePath: 'identity'
           //notify: true
         },
 
+        /**
+         * `hashtag` is received from parent-element
+         */
+        hashtag: {
+          type: Object
+        },
       },
 
       behaviors: [
@@ -131,6 +193,7 @@
 
       ready: function(){
         this.onEnter();
+        this.myDeals = [];
       },
 
       /**
@@ -147,6 +210,20 @@
       onExit: function(){
       },
 
+      // done deals
+      doneFilter: function(item) {
+        return (item) ? item.dealstate === 'payout' : false;
+      },
+
+      // canceled deals
+      cancelFilter: function(item){
+        return item.dealstate === 'canceled';
+      },
+
+      // open deals
+      openFilter: function(item){
+        return item.dealstate !== 'payout' && item.dealstate !== 'canceled';
+      },
 
       /**
       * '_is', a function to bind a template to a certain value of a variable.
@@ -158,6 +235,21 @@
         return a === b;
       },
 
+      _deals: function(deals) {
+        var self = this;
+
+        deals.forEach((deal) => {
+          if (deal.hashtag === this.hashtag.address
+            && (deal.ismydeal || (deal.provider && deal.provider.pubkey === self.identity.pubkey))) {
+            var i = self.myDeals.findIndex((d) => {
+              return d.id === deal.id;
+            });
+
+            (i > -1) ? self.myDeals[i] = deal : self.push('myDeals', deal);
+          }
+        })
+
+      },
 
       showDetails: function(){
         var completeddeals = this.$.completeddeals_collapser;
@@ -166,6 +258,26 @@
           this.collapsestate = 'opened';
         } else {
           this.collapsestate = '';
+        }
+      },
+
+      showCanceledDetails: function() {
+        var canceledDeals = this.$.canceleddeals_collapser;
+        canceledDeals.toggle();
+        if (canceledDeals.opened) {
+          this.canceledcollapsestate = 'opened';
+        } else {
+          this.canceledcollapsestate = '';
+        }
+      },
+
+      showOpenDetails: function(){
+        var openDeals = this.$.opendeals_collapser;
+        openDeals.toggle();
+        if (openDeals.opened){
+          this.opencollapsestate = 'opened';
+        } else {
+          this.opencollapsestate = '';
         }
       },
 

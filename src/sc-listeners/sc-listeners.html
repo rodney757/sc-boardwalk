@@ -3,6 +3,7 @@
 <link rel="import" href="../sc-shh/sc-shh.html">
 <link rel="import" href="../sc-web3/sc-web3.html">
 <link rel="import" href="../sc-config/sc-config.html">
+<link rel="import" href="../sc-dealqueue/sc-dealqueue.html">
 <link rel="import" href="../sc-dealfortwo/sc-dealfortwo.html">
 <script type="text/javascript" src="../../bower_components/uuid-js/lib/uuid.js"></script>
 <script src="html-css-sanitizer-minified.js"></script>
@@ -10,6 +11,8 @@
 <dom-module id="sc-listeners">
   <template>
     <sc-dealfortwo id="dealfortwo"></sc-dealfortwo>
+    <sc-ipfs id="ipfs"></sc-ipfs>
+    <sc-dealqueue id="dealqueue"></sc-dealqueue>
     <sc-web3 id="web3" web3="{{web3}}"></sc-web3>
     <sc-shh web3="{{shhweb3}}"></sc-shh>
     <sc-config config="{{config}}"></sc-config>
@@ -442,6 +445,13 @@
         });
       },
 
+//      ready: function() {
+//        this.$.dealfortwo.getDeals()
+//          .then((dealTxs) => {
+//            console.log(dealTxs);
+//          });
+//      },
+//
 
       _changefilter: function(){
 
@@ -546,71 +556,32 @@
         switch (payload.type){
           case 'dealfortwo-request-create':
             var dealid = payload.id;
-            if(!this.messagequeue[dealid]){ this.messagequeue[dealid] = this.payloadStructure(); }
-            this.messagequeue[dealid].gatequeue[0].push(payload);
+            this.$.dealqueue.push(dealid, 0, this.parsemessage, this, [payload]);
             break;
           case 'dealfortwo-request-reply':
             var dealid = payload.parentrequestid;
-            if(!this.messagequeue[dealid]){ this.messagequeue[dealid] = this.payloadStructure(); }
-            this.messagequeue[dealid].gatequeue[1].push(payload);
+            this.$.dealqueue.push(dealid, 1, this.parsemessage, this, [payload]);
             break;
           case 'dealfortwo-select-provider':
           case 'dealfortwo-cancel':
             var dealid = payload.requestid;
-            if(!this.messagequeue[dealid]){ this.messagequeue[dealid] = this.payloadStructure(); }
-            this.messagequeue[dealid].gatequeue[2].push(payload);
+            this.$.dealqueue.push(dealid, 2, this.parsemessage, this, [payload]);
             break;
           case 'dealfortwo-provider-funding':
             var dealid = payload.id;
-            if(!this.messagequeue[dealid]){ this.messagequeue[dealid] = this.payloadStructure(); }
-            this.messagequeue[dealid].gatequeue[3].push(payload);
+            this.$.dealqueue.push(dealid, 3, this.parsemessage, this, [payload]);
             break;
           case 'dealfortwo-approve':
             var dealid = payload.requestid;
-            if(!this.messagequeue[dealid]){ this.messagequeue[dealid] = this.payloadStructure(); }
-            this.messagequeue[dealid].gatequeue[4].push(payload);
+            this.$.dealqueue.push(dealid, 4, this.parsemessage, this, [payload]);
             break;
           default:
             console.log('unknown gate for message',payload);
             break;
         }
 
-        this.purgeQueue();
+        this.$.dealqueue.purge();
 
-      },
-
-      purgeQueue:function(){
-        // purge the queue
-        for (var key in this.messagequeue) {
-          if (this.messagequeue.hasOwnProperty(key)) {
-            //if (key =='b4e85acb-bfe9-4cae-a444-86c1e4496e4c') debugger;
-            var currentgate = this.messagequeue[key].currentgate;
-            // empty all gates up to the current gate
-            for (inspectedgate = 0 ; inspectedgate <= currentgate; inspectedgate++){
-              var opennextgate = false;
-              if (this.messagequeue[key].gatequeue[inspectedgate]){
-                while (this.messagequeue[key].gatequeue[inspectedgate].length > 0){
-                  opennextgate = true;
-                  msg = this.messagequeue[key].gatequeue[inspectedgate].pop();
-                  this.parsemessage(msg);
-                }
-              }
-              // increase the gate number after processing items in this one
-              // and start processing the next gate. 
-              if(opennextgate){
-                this.messagequeue[key].currentgate++;
-                this.purgeQueue();
-              }
-            }
-          }
-        }
-      },
-
-      payloadStructure: function(){
-        return {
-          currentgate: 0,
-          gatequeue: [[],[],[],[],[]]
-        }
       },
 
       parsemessage : function(payload){
@@ -834,6 +805,75 @@
               return item.id === replyid;
         });
       },
+
+//      _getDealsFromEvents: function() {
+//        // TODO putting this here for now, but should be moved to an 'archived' page
+//        var eventOptions = {
+//          fromBlock: this.config.eventFromBlock,
+//          toBlock: this._getToBlock
+//        };
+//
+//        var newDealEvent = this.$.dealfortwo.NewDealForTwo(eventOptions);
+//
+//        newDealEvent.get()
+//          .then(function(logs) {
+//
+//            var dealPromises = [];
+//
+//            logs.forEach((log) => {
+//              dealPromises.push(this.$.ipfs.cat(log.args.metadata)
+//
+//                .then((result) => {
+//                  var metadata = JSON.parse(result);
+//
+//                  Object.assign(metadata, {
+//                    targetdealstate: 'created',
+//                    id: log.args.dealid,
+//                    offertime: web3.getBlock(log.blockNumber).timestamp,
+//                    offercreationtx: log.transactionHash,
+//                    creationtx_mined: true,
+//                    createsuccess: true
+//                  });
+//
+//                  this.dispatch('update_deal', newDeal);
+//                  Promise.resolve();
+//                })
+//              );
+//            });
+//
+//            Promise.resolve(dealPromises);
+//          })
+//
+//          .then((deals) => {
+//
+//          })
+//
+//            Promise.all(dealPromises)
+//              .then(() => {
+//
+//
+//            })
+//          })
+//
+////              .catch((err) => console.log('sc-listeners -> err reading dealfetching deal metadata from ipfs:', err));
+//
+//
+//
+//      },
+
+      _getToBlock: function() {
+        // return the block after after whisper messages have expired
+
+        var startBlockTs = Date.now() - config.shhttl;
+        var toBlock = web3.getBlockNumber() - (config.shhttl / 20); // conservative est of 20s blocktime so we have less blocks to check the ts of
+
+        while(web3.getBlock(startBlock).timestamp > startBlockTs) {
+          startBlock--;
+        }
+
+//        startBlock++; // advance 1 block so we don't loose any deals in between the whisper expiration the startBlock;
+        return toBlock;
+      }
 
 
 

@@ -315,7 +315,7 @@
             self.methods[func.signature()] = func;
           });
 
-          var transferEvent = this.$.minime.MiniMeContractInstance.Transfer({_to: this.config.dealfortwofactory}, {fromBlock: 3879365, toBlock: 'latest'}); // fromBlock is where the first tx happens
+          var transferEvent = this.$.minime.MiniMeContractInstance.Transfer({_to: this.config.dealfortwofactory}, {fromBlock: 0, toBlock: 'latest'}); // fromBlock is where the first tx happens
 
           // get the txHash of each Transfer event to the DealForTwoFactory. This event is emitted on makeDealForTwo and fundDeal functions
           transferEvent.get(function(err, logs) {

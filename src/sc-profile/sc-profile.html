@@ -9,12 +9,15 @@
 <link rel="import" href="../../bower_components/sc-iconset/sc-iconset.html">
 
 
+<link rel="import" href="../sc-dealqueue/sc-dealqueue.html">
+<link rel="import" href="../sc-config/sc-dealfortwo.html">
 <link rel="import" href="../sc-ipfs/sc-ipfs.html">
+<link rel="import" href="../sc-config/sc-config.html">
 <link rel="import" href="../sc-avatar/sc-avatar.html">
 <link rel="import" href="../sc-redux/sc-redux.html">
 <link rel="import" href="../sc-ethbalanceformatter/sc-ethbalanceformatter.html">
 
-<!-- <link rel="import" href="sc-hashtagactivity.html"> -->
+ <link rel="import" href="sc-hashtagactivity.html">
 
 
 <link rel="stylesheet" href="../../bower_components/Croppie/croppie.css" />
@@ -428,7 +431,10 @@
     </style>
     <iron-media-query query="(min-width:0px) and (max-width: 420px)" query-matches="{{phoneview}}"></iron-media-query>
 
+    <sc-dealqueue id="dealqueue"></sc-dealqueue>
+    <sc-dealfortwo id="dealfortwo"></sc-dealfortwo>
     <sc-ipfs id="ipfs"></sc-ipfs>
+    <sc-config config="{{config}}"></sc-config>
 
     <div class="total" id="totalbox">
 
@@ -561,11 +567,11 @@
 
 
 
-<!--     
+<!--&lt;!&ndash;
 
   ******
   "Please leave this here, still working on this, ty!" - Faffy Dee
-  ******
+  ****** -->
 
 
       <div class="dottedline"></div>
@@ -573,10 +579,10 @@
 
 
   <div class="hashtagactivities totalwidth vertic start startjust">
-        <template is="dom-repeat" items="{{testarray}}">
+        <template is="dom-repeat" items="[[hashtags]]">
           <sc-hashtagactivity hashtag="[[item]]"></sc-hashtagactivity>
         </template>
-      </div> -->
+      </div>
 
           <template is="dom-if" if="{{phoneview}}">
             <div class="fivespace"></div>
@@ -681,6 +687,109 @@
             identity: identitydata
           };
         },
+
+        update_deal: function(mutation) {
+          let deals = this.deals.slice(0);
+          var foundDealIndex = deals.findIndex(function(item) {
+            return item.id === mutation.id;
+          });
+
+          var foundDeal = deals[foundDealIndex];
+
+          if (foundDeal) {
+            if (mutation.targetdealstate) {
+              var targetstate;
+
+              switch ((foundDeal.dealstate || 'init') + '_' + mutation.targetdealstate) {
+
+                case 'init_created':
+                case 'init_accepted':
+                case 'init_canceled':
+                case 'init_indeal':
+                case 'init_payout':
+                  targetstate = mutation.targetdealstate;
+                  break;
+                case 'created_created':
+                  targetstate = 'created';
+                  break;
+                case 'created_accepted':
+                  targetstate = 'accepted';
+                  break;
+                case 'created_canceled':
+                  targetstate = 'canceled';
+                  break;
+                case 'created_indeal':
+                  targetstate = 'indeal';
+                  break;
+                case 'created_payout':
+                  targetstate = 'payout';
+                  break;
+                case 'accepted_accepted':
+                  targetstate = 'accepted';
+                  break;
+                case 'accepted_canceled':
+                  targetstate = 'canceled';
+                  break;
+                case 'accepted_indeal':
+                  targetstate = 'indeal';
+                  break;
+                case 'accepted_payout':
+                  targetstate = 'payout';
+                  break;
+                case 'canceled_canceled':
+                  targetstate = 'canceled';
+                  break;
+                case 'indeal_indeal':
+                  targetstate = 'indeal';
+                  break;
+                case 'indeal_payout':
+                  targetstate = 'payout';
+                  break;
+                case 'payout_payout':
+                  targetstate = 'payout';
+                  break;
+                default:
+                  console.log('sc-profile -> archived deals -> unknown dealstate', (foundDeal.dealstate || 'init') + '_' + mutation.targetdealstate);
+                  debugger;
+                  return; // do nothing
+              }
+
+              mutation.dealstate = targetstate;
+              delete mutation.targetdealstate;
+            }
+
+            if (foundDeal.seeker.pubkey === this.identity.pubkey) {
+              mutation.ismydeal = true;
+              mutation.seeker.avatarhash = this.identity.avatarhash;
+              mutation.seeker.username = this.identity.username;
+            } else {
+              mutation.ismydeal = false;
+            }
+            Object.assign(foundDeal, mutation);
+          } else {
+            // this is a new deal
+            if (mutation.targetdealstate) {
+              mutation.dealstate = mutation.targetdealstate;
+              delete mutation.targetdealstate;
+            }
+            if (mutation.seeker.pubkey === this.identity.pubkey) {
+              mutation.ismydeal = true;
+            } else {
+              mutation.ismydeal = false;
+            }
+            deals.push(Object.assign({
+              replies: [],
+              seeker: {
+                pubkey: '0x0'
+              }
+            }, mutation));
+          }
+          return {
+            type: 'DEALS',
+            deals: deals
+          };
+
+        }
       },
 
       properties: {
@@ -699,6 +808,10 @@
           observer: '_identity',
           statePath: 'identity'
           //notify: true
+        },
+
+        config: {
+          type: Object
         },
 
         /**
@@ -843,10 +956,14 @@
 
       ready: function(){
         this.onEnter();
-        this.testarray = [
-          'BoardwalkTesting',
-          'NeedaRide'
-        ]
+
+        this.hashtags = Object.keys(this.config.hashtagcontracts)
+          .map((key) => {
+            return {
+              name: key,
+              address: this.config.hashtagcontracts[key]
+            }
+          });
       },
 
       /**
@@ -859,6 +976,7 @@
         // copied from attached
         this.init();
         this.itemshow = true;
+        this.fetchedArchivedDeals = false;
         // var colly = document.getElementById('deletemyvaultcollapser');
         // colly.closed = true;
       },
@@ -868,6 +986,12 @@
       * use this to reset any variables when leaving this component while it remains loaded.
       */
       onExit: function(){
+      },
+
+      attached: function() {
+        if (!this.fetchedArchivedDeals) {
+          this._fetchArchivedDeals();
+        }
       },
 
 
@@ -1174,7 +1298,72 @@
         }
       },
 
+      //TODO refactor this function to use the DealForTwoFactory events and ipfs metadata file
+      _fetchArchivedDeals: function() {
+        var self = this;
+        this.fetchedArchivedDeals = true;
 
+        this.$.dealfortwo.getDealTxs()
+          .then((dealTxs) => {
+
+            dealTxs.forEach((dealTx) => {
+              switch(dealTx.method) {
+                case 'makeDealForTwo':
+                  self.$.dealqueue.push(dealTx.dealid, 0, self._handleDeal , self, [dealTx]);
+                  break;
+                case 'fundDeal':
+                  self.$.dealqueue.push(dealTx.dealid, 1, self._handleDeal , self, [dealTx]);
+                  break;
+                default:
+                  console.log('sc-profile -> archivedDeals unknown method', dealTx.method);
+              }
+
+              self.$.dealqueue.purge();
+            });
+          });
+      },
+
+      // currently we know limited info for archived deals. Only what we can glean from the transactions themselves.
+      _handleDeal: function(dealTx) {
+        var mutation = {
+          id: dealTx.dealid,
+          hashtag: this.config.hashtagcontracts['Pioneer'] // only #Pioneer right now
+        };
+
+        if (dealTx.method === 'makeDealForTwo') {
+          this.$.dealfortwo.readDeal(dealTx.dealid, dealTx.seeker.pubkey, function(err, data) {
+            var mutation = {
+              id: dealTx.dealid,
+              dealdata : data,
+              amount: data.dealValue
+            };
+
+            if (data.status === 1) {//done deal
+              mutation.targetdealstate = 'payout';
+            } else if (data.status === 4) {// canceled deal
+              mutation.targetdealstate = 'canceled';
+            }
+
+          });
+
+          Object.assign(mutation, {
+            seeker: {
+              pubkey: dealTx.seeker.pubkey
+            },
+            creationtx: dealTx.txhash,
+            creationtx_mined: true,
+            targetdealstate: 'created',
+          });
+        } else if (dealTx.method === 'fundDeal') {
+          Object.assign(mutation, {
+            providerfundingtx: dealTx.txhash,
+            providerfundingtx_mined: true,
+            targetdealstate: 'indeal',
+          });
+       }
+
+        this.dispatch('update_deal', mutation);
+      },
 
     });
   </script>
